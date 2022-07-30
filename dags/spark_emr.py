@@ -69,6 +69,7 @@ with DAG("db_ingestion", start_date=days_ago(1)) as dag:
         job_flow_overrides=JOB_FLOW_OVERRIDES,
         aws_conn_id="aws_default",
         emr_conn_id="emr_default",
+        region_name="us-east-2",
     )
     cluster_remover = EmrTerminateJobFlowOperator(
         task_id="remove_cluster",
