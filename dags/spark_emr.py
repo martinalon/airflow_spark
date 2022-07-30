@@ -75,4 +75,4 @@ with DAG("db_ingestion", start_date=days_ago(1)) as dag:
     )
     end_workflow = DummyOperator(task_id="end_workflow")
 
-start_workflow >> end_workflow
+start_workflow >> cluster_creator >> cluster_remover >> end_workflow
