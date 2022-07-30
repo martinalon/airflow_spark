@@ -5,7 +5,9 @@ from airflow.operators.dummy import DummyOperator
 from airflow.operators.python import PythonOperator
 from airflow.operators.sql import BranchSQLOperator
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
-from airflow.providers.amazon.aws.operators.emr_add_steps import EmrAddStepsOperator
+from airflow.providers.amazon.aws.operators.emr_add_steps import (
+    EmrAddStepsOperator,
+)
 from airflow.providers.amazon.aws.operators.emr_create_job_flow import (
     EmrCreateJobFlowOperator,
 )
@@ -68,7 +70,7 @@ with DAG("db_ingestion", start_date=days_ago(1)) as dag:
         aws_conn_id="aws_default",
         emr_conn_id="emr_default",
     )
-     cluster_remover = EmrTerminateJobFlowOperator(
+    cluster_remover = EmrTerminateJobFlowOperator(
         task_id="remove_cluster",
         job_flow_id="{{ task_instance.xcom_pull(task_ids='create_job_flow', key='return_value') }}",
         aws_conn_id="aws_default",
