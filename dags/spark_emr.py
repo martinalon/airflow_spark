@@ -72,11 +72,19 @@ with DAG("db_ingestion", start_date=days_ago(1)) as dag:
         emr_conn_id="emr_default",
         region_name="us-east-2",
     )
-    # cluster_remover = EmrTerminateJobFlowOperator(
-    #    task_id="remove_cluster",
-    #    aws_conn_id="aws_default",
-    #    job_flow_id=cluster_creator.output,  # "{{ task_instance.xcom_pull(task_ids='create_job_flow', key='return_value') }}",
-    # )
+    step_adder = EmrAddStepsOperator(
+        task_id="add_steps",
+        job_flow_id="{{ task_instance.xcom_pull(task_ids='create_job_flow', key='return_value') }}",
+        aws_conn_id="aws_default",
+        steps=SPARK_STEPS,
+    )
+    step_checker = EmrStepSensor(
+        task_id="watch_step",
+        job_flow_id="{{ task_instance.xcom_pull('create_job_flow', key='return_value') }}",
+        step_id="{{ task_instance.xcom_pull(task_ids='add_steps', key='return_value')[0] }}",
+        aws_conn_id="aws_default",
+    )
+
     cluster_remover = EmrTerminateJobFlowOperator(
         task_id="remove_cluster",
         job_flow_id=job_flow_creator.output,
