@@ -1,94 +1,92 @@
-import datetime
+from datetime import timedelta
 
-from airflow.models import DAG
-from airflow.operators.dummy import DummyOperator
-from airflow.operators.python import PythonOperator
-from airflow.operators.sql import BranchSQLOperator
-from airflow.providers.amazon.aws.hooks.s3 import S3Hook
-from airflow.providers.amazon.aws.sensors.s3 import S3KeySensor
-from airflow.providers.postgres.hooks.postgres import PostgresHook
-from airflow.providers.postgres.operators.postgres import PostgresOperator
+from airflow import DAG
+from airflow.providers.amazon.aws.operators.emr_add_steps import (
+    EmrAddStepsOperator,
+)
+from airflow.providers.amazon.aws.operators.emr_create_job_flow import (
+    EmrCreateJobFlowOperator,
+)
+from airflow.providers.amazon.aws.operators.emr_terminate_job_flow import (
+    EmrTerminateJobFlowOperator,
+)
+from airflow.providers.amazon.aws.sensors.emr_step import EmrStepSensor
 from airflow.utils.dates import days_ago
-from airflow.utils.trigger_rule import TriggerRule
 
-# with DAG("db_ingestion", start_date=datetime.date(2022, 1, 1)) as dag:
-#    start_workflow = DummyOperator(task_id="start_workflow")
-#    validate = DummyOperator(task_id="validate")
-#    prepare = DummyOperator(task_id="prepare")
-#    load = DummyOperator(task_id="load")
-#    end_workflow = DummyOperator(task_id="end_workflow")
+DEFAULT_ARGS = {
+    "owner": "airflow",
+    "depends_on_past": False,
+    "email": ["airflow@example.com"],
+    "email_on_failure": False,
+    "email_on_retry": False,
+}
 
-#    start_workflow >> validate >> prepare >> load >> end_workflow
+SPARK_STEPS = [
+    {
+        "Name": "calculate_pi",
+        "ActionOnFailure": "CONTINUE",
+        "HadoopJarStep": {
+            "Jar": "command-runner.jar",
+            "Args": ["/usr/lib/spark/bin/run-example", "SparkPi", "10"],
+        },
+    }
+]
 
-
-def ingest_data():
-    s3_hook = S3Hook(
-        aws_conn_id="aws_default",  # esta es la conexion que se utilizará para los s3
-    )
-    psql_hook = PostgresHook(
-        postgres_conn_id="rds_conn"
-    )  # Aqui se pone el nombre de la conexxion para el postgres
-    file = s3_hook.download_file(
-        key="user_purchase.csv",  # este es el pad del archivo que previamente tiene que estar en un s3
-        bucket_name="my-tf-test-bucket-el-martin",  # Este es el nombre del buquet que contiene a mis archivos csv
-    )
-    psql_hook.bulk_load(
-        table="user_purchase", tmp_file="file"
-    )  # aqui se especifica el nombre de la base de datos en postgres
-
+JOB_FLOW_OVERRIDES = {
+    "Name": "PiCalc",
+    "ReleaseLabel": "emr-5.29.0",
+    "Instances": {
+        "InstanceGroups": [
+            {
+                "Name": "Master node",
+                "Market": "SPOT",
+                "InstanceRole": "MASTER",
+                "InstanceType": "m1.medium",
+                "InstanceCount": 1,
+            }
+        ],
+        "KeepJobFlowAliveWhenNoSteps": True,
+        "TerminationProtected": False,
+    },
+    "JobFlowRole": "EMR_EC2_DefaultRole",
+    "ServiceRole": "EMR_DefaultRole",
+}
 
 with DAG(
-    "db_ingestion", start_date=days_ago(1), schedule_interval="@once"
+    dag_id="emr_job_flow_manual_steps_dag",
+    default_args=DEFAULT_ARGS,
+    dagrun_timeout=timedelta(hours=2),
+    start_date=days_ago(2),
+    schedule_interval="0 3 * * *",
+    tags=["example"],
 ) as dag:
-    start_workflow = DummyOperator(task_id="start_workflow")  # inicio
-    validate = S3KeySensor(
-        task_id="validate",
-        aws_conn_id="aws_default",  # esta es la coneccion utilizada para el s3
-        bucket_name="my-tf-test-bucket-el-martin",  # Nombre del bucket que contiene el archivo csv que convertire en una base de datos postgres
-        bucket_key="user_purchase.csv",  # este es el path del archivo csv dentro del bucket s3
-    )
-    prepare = PostgresOperator(
-        task_id="prepare",
-        postgres_conn_id="rds_conn",  # esta es la conexion utilizada para el rds. lo siguiente es el query para definir el postgres db
-        sql="""                                                
-            CREATE TABLE IF NOT EXISTS user_purchase (
-                invoice_number varchar(10),
-                stock_code varchar(20),
-                detail varchar(1000),
-                quantity int,
-                invoice_date timestamp,
-                unit_price numeric(8,3),
-                customer_id int,
-                country varchar(20)
-            )
-        """,
-    )
-    clear = PostgresOperator(
-        task_id="clear",
-        postgres_conn_id="rds_conn",
-        sql="""DELETE FROM user_purchase""",  # este query es para descartar datos repetidos
-    )
-    continue_workflow = DummyOperator(
-        task_id="continue_workflow"
-    )  # esto es para continuar en caso de que los datos no esten repetidos
-    branch = BranchSQLOperator(
-        task_id="is_empty",
-        conn_id="rds_conn",  # conexion del rds
-        sql="SELECT COUNT(*) AS rows FROM user_purchase",  # si el resultado del conteo es mayor a uno, entonces no se menten los datos
-        # si mayor o igual a uno se limpian los datos
-        follow_task_ids_if_true=[clear.task_id],
-        # si es cero entonces continua con el proceso
-        follow_task_ids_if_false=[continue_workflow.task_id],
-    )
-    load = PythonOperator(  # aqui se meten los datos gracias a la funcion ingest_data
-        task_id="load",
-        python_callable=ingest_data,
-        trigger_rule=TriggerRule.ONE_SUCCESS,
+
+    # [START howto_operator_emr_manual_steps_tasks]
+    cluster_creator = EmrCreateJobFlowOperator(
+        task_id="create_job_flow",
+        job_flow_overrides=JOB_FLOW_OVERRIDES,
+        aws_conn_id="aws_default",
+        emr_conn_id="emr_default",
     )
 
-    end_workflow = DummyOperator(
-        task_id="end_workflow"
-    )  # termina el proceso aqui
+    step_adder = EmrAddStepsOperator(
+        task_id="add_steps",
+        job_flow_id="{{ task_instance.xcom_pull(task_ids='create_job_flow', key='return_value') }}",
+        aws_conn_id="aws_default",
+        steps=SPARK_STEPS,
+    )
 
-    start_workflow >> validate >> prepare >> branch
-    branch >> [clear, continue_workflow] >> load >> end_workflow
+    step_checker = EmrStepSensor(
+        task_id="watch_step",
+        job_flow_id="{{ task_instance.xcom_pull('create_job_flow', key='return_value') }}",
+        step_id="{{ task_instance.xcom_pull(task_ids='add_steps', key='return_value')[0] }}",
+        aws_conn_id="aws_default",
+    )
+
+    cluster_remover = EmrTerminateJobFlowOperator(
+        task_id="remove_cluster",
+        job_flow_id="{{ task_instance.xcom_pull(task_ids='create_job_flow', key='return_value') }}",
+        aws_conn_id="aws_default",
+    )
+
+    cluster_creator >> step_adder >> step_checker >> cluster_remover
