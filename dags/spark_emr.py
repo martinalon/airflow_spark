@@ -58,18 +58,26 @@ JOB_FLOW_OVERRIDES = {
 with DAG("db_ingestion", start_date=days_ago(1)) as dag:
     start_workflow = DummyOperator(task_id="start_workflow")
     # [START howto_operator_emr_manual_steps_tasks]
-    cluster_creator = EmrCreateJobFlowOperator(
+    # cluster_creator = EmrCreateJobFlowOperator(
+    #    task_id="create_job_flow",
+    #    job_flow_overrides=JOB_FLOW_OVERRIDES,
+    #    aws_conn_id="aws_default",
+    #    emr_conn_id="emr_default",
+    #    region_name="us-east-2",
+    # )
+    job_flow_creator = EmrCreateJobFlowOperator(
         task_id="create_job_flow",
         job_flow_overrides=JOB_FLOW_OVERRIDES,
-        aws_conn_id="aws_default",
-        emr_conn_id="emr_default",
-        region_name="us-east-2",
     )
+    # cluster_remover = EmrTerminateJobFlowOperator(
+    #    task_id="remove_cluster",
+    #    aws_conn_id="aws_default",
+    #    job_flow_id=cluster_creator.output,  # "{{ task_instance.xcom_pull(task_ids='create_job_flow', key='return_value') }}",
+    # )
     cluster_remover = EmrTerminateJobFlowOperator(
         task_id="remove_cluster",
-        aws_conn_id="aws_default",
-        job_flow_id=cluster_creator.output,  # "{{ task_instance.xcom_pull(task_ids='create_job_flow', key='return_value') }}",
+        job_flow_id=job_flow_creator.output,
     )
     end_workflow = DummyOperator(task_id="end_workflow")
 
-start_workflow >> cluster_creator >> cluster_remover >> end_workflow
+start_workflow >> job_flow_creator >> cluster_remover >> end_workflow
