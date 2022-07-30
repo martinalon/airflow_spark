@@ -78,7 +78,6 @@ with DAG("db_ingestion", start_date=days_ago(1)) as dag:
     cluster_remover = EmrTerminateJobFlowOperator(
         task_id="remove_cluster",
         job_flow_id=job_flow_creator.output,
-        region_name="us-east-2",
     )
     end_workflow = DummyOperator(task_id="end_workflow")
 
