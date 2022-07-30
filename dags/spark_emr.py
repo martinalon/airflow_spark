@@ -69,7 +69,6 @@ with DAG("db_ingestion", start_date=days_ago(1)) as dag:
         task_id="remove_cluster",
         job_flow_id="{{ task_instance.xcom_pull(task_ids='create_job_flow', key='return_value') }}",
         aws_conn_id="aws_default",
-        region_name="us-east-2",
     )
     end_workflow = DummyOperator(task_id="end_workflow")
 
