@@ -21,11 +21,56 @@ from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.utils.dates import days_ago
 from airflow.utils.trigger_rule import TriggerRule
 
+DEFAULT_ARGS = {
+    "owner": "airflow",
+    "depends_on_past": False,
+    "email": ["airflow@example.com"],
+    "email_on_failure": False,
+    "email_on_retry": False,
+}
+
+SPARK_STEPS = [
+    {
+        "Name": "calculate_pi",
+        "ActionOnFailure": "CONTINUE",
+        "HadoopJarStep": {
+            "Jar": "command-runner.jar",
+            "Args": ["/usr/lib/spark/bin/run-example", "SparkPi", "10"],
+        },
+    }
+]
+
+JOB_FLOW_OVERRIDES = {
+    "Name": "PiCalc",
+    "ReleaseLabel": "emr-5.29.0",
+    "Instances": {
+        "InstanceGroups": [
+            {
+                "Name": "Master node",
+                "Market": "SPOT",
+                "InstanceRole": "MASTER",
+                "InstanceType": "m1.medium",
+                "InstanceCount": 1,
+            }
+        ],
+        "KeepJobFlowAliveWhenNoSteps": True,
+        "TerminationProtected": False,
+    },
+    "JobFlowRole": "EMR_EC2_DefaultRole",
+    "ServiceRole": "EMR_DefaultRole",
+}
+
+
 with DAG("db_ingestion", start_date=days_ago(1)) as dag:
     start_workflow = DummyOperator(task_id="start_workflow")
-    validate = DummyOperator(task_id="validate")
-    prepare = DummyOperator(task_id="prepare")
-    load = DummyOperator(task_id="load")
+    # [START howto_operator_emr_manual_steps_tasks]
+    cluster_creator = EmrCreateJobFlowOperator(
+        task_id="create_job_flow",
+        job_flow_overrides=JOB_FLOW_OVERRIDES,
+        aws_conn_id="aws_default",
+        emr_conn_id="emr_default",
+    )
+
     end_workflow = DummyOperator(task_id="end_workflow")
 
-start_workflow >> validate >> prepare >> load >> end_workflow
+start_workflow >> end_workflow
