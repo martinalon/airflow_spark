@@ -21,14 +21,6 @@ from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.utils.dates import days_ago
 from airflow.utils.trigger_rule import TriggerRule
 
-DEFAULT_ARGS = {
-    "owner": "airflow",
-    "depends_on_past": False,
-    "email": ["airflow@example.com"],
-    "email_on_failure": False,
-    "email_on_retry": False,
-}
-
 SPARK_STEPS = [
     {
         "Name": "calculate_pi",
@@ -43,19 +35,21 @@ SPARK_STEPS = [
 JOB_FLOW_OVERRIDES = {
     "Name": "PiCalc",
     "ReleaseLabel": "emr-5.29.0",
+    "Applications": [{"Name": "Spark"}],
     "Instances": {
         "InstanceGroups": [
             {
-                "Name": "Master node",
-                "Market": "SPOT",
+                "Name": "Primary node",
+                "Market": "ON_DEMAND",
                 "InstanceRole": "MASTER",
-                # "InstanceType": "m1.medium",
+                "InstanceType": "m5.xlarge",
                 "InstanceCount": 1,
-            }
+            },
         ],
-        "KeepJobFlowAliveWhenNoSteps": True,
+        "KeepJobFlowAliveWhenNoSteps": False,
         "TerminationProtected": False,
     },
+    "Steps": SPARK_STEPS,
     "JobFlowRole": "EMR_EC2_DefaultRole",
     "ServiceRole": "EMR_DefaultRole",
 }
