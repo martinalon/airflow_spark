@@ -76,6 +76,7 @@ with DAG(
         aws_conn_id="aws_default",
         emr_conn_id="aws_default",
         region_name="us-east-2",
+        dag=dag,
     )
 
     step_adder = EmrAddStepsOperator(
